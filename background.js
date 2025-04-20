@@ -1,3 +1,4 @@
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "getMeaning",
@@ -5,42 +6,39 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["selection"],
   });
 });
-
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "getMeaning" && info.selectionText) {
-    fetchMeaning(tab, info.selectionText);
+    handleMeaningRequest(tab, info.selectionText);
   }
 });
-
-// Handle keyboard shortcut command
 chrome.commands.onCommand.addListener(async (command) => {
-  if (command === "get-word-meaning") {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const activeTab = tabs[0];
-    const injectionResults = await chrome.scripting.executeScript({
+  if (command !== "get-word-meaning") return;
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!activeTab?.id) return;
+
+  const [{ result: selectedText }] = await chrome.scripting.executeScript({
+    target: { tabId: activeTab.id },
+    func: () => window.getSelection().toString() || null,
+  });
+
+  if (selectedText) {
+    handleMeaningRequest(activeTab, selectedText);
+  } else {
+    await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
-      func: () => {
-        const selectedText = window.getSelection().toString();
-        return selectedText || null;
-      },
+      func: () => alert("Please highlight a word to find its meaning."),
     });
-    const selectedText = injectionResults[0]?.result;
-    if (selectedText) {
-      fetchMeaning(activeTab, selectedText);
-    } else {
-      await chrome.scripting.executeScript({
-        target: { tabId: activeTab.id },
-        func: () => alert("Please highlight a word to find its meaning."),
-      });
-    }
   }
 });
-
-// Function to inject content.js and fetch meaning
-async function fetchMeaning(tab, word) {
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["content.js"],
-  });
-  chrome.tabs.sendMessage(tab.id, { action: "showMeaning", word: word });
+async function handleMeaningRequest(tab, word) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"],
+    });
+    chrome.tabs.sendMessage(tab.id, { action: "showMeaning", word });
+  } catch (error) {
+    console.error("Error injecting content script or sending message:", error);
+  }
 }
